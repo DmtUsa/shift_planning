@@ -91,7 +91,7 @@ class MILP:
 
         # Each route needs two couriers every day
         constraints_1 = {
-            {j, k, l}: opt_model.addConstraint(
+            (j, k, l): opt_model.addConstraint(
                 pulp.LpConstraint(
                     e=pulp.lpSum(x[i, j, k, l] for i in C),
                     sense=pulp.LpConstraintEQ,
@@ -106,7 +106,7 @@ class MILP:
 
         # Only one shift per day
         constraints_2 = {
-            {i, k}: opt_model.addConstraint(
+            (i, k): opt_model.addConstraint(
                 pulp.LpConstraint(
                     e=pulp.lpSum(x[i, j, k, l] for j in R for l in S),
                     sense=pulp.LpConstraintLE,
@@ -114,6 +114,47 @@ class MILP:
                     name=f"2_constraint_{i}_{k}",
                 )
             )
-            for i in R
+            for i in C
             for k in D
+        }
+
+        # Courier can be assigned to a route only if qualified
+        constraints_3 = {
+            (i, j): opt_model.addConstraint(
+                pulp.LpConstraint(
+                    e=pulp.lpSum(x[i, j, k, l]*(1 - q[i, j]) for k in D for l in S),
+                    sense=pulp.LpConstraintEQ,
+                    rhs=0,
+                    name=f"3_constraint_{i}_{j}",
+                )
+            )
+            for i in C
+            for j in R
+        }
+
+        # Respect vacation
+        constraints_4 = {
+            (i, k): opt_model.addConstraint(
+                pulp.LpConstraint(
+                    e=pulp.lpSum(x[i, j, k, l]*v[i, k] for j in R for l in S),
+                    sense=pulp.LpConstraintEQ,
+                    rhs=0,
+                    name=f"4_constraint_{i}_{k}",
+                )
+            )
+            for i in C
+            for k in D
+        }
+
+        # Not more than 4 night shifts
+        constraints_5 = {
+            i: opt_model.addConstraint(
+                pulp.LpConstraint(
+                    e=pulp.lpSum(x[i, j, k, 2] for j in R for k in D),
+                    sense=pulp.LpConstraintLE,
+                    rhs=4,
+                    name=f"5_constraint_{i}",
+                )
+            )
+            for i in C
         }
