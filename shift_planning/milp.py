@@ -30,6 +30,7 @@ class MILP:
         )
 
     def solve(self):
+
         nr_of_couriers = self._forced_day_off.shape[0]
         nr_of_days = self._forced_day_off.shape[1]
         nr_of_routes = self._qualified_route.shape[1]
@@ -58,4 +59,30 @@ class MILP:
         }
 
         # preferred days of
-        d = {(i, k): self._pref_day_off.iloc[i, k+1] for i in C for k in D}
+        d = {(i, k): self._pref_day_off.iloc[i, k + 1] for i in C for k in D}
+
+        # decision variables x_i_j_k_l
+        # indicating if a courier i is assigned to a shift l on route j on day k
+        x = {
+            (i, j, k, l): pulp.LpVariable(cat=pulp.LpBinary, name=f"x_{i}_{j}_{k}_{l}")
+            for i in C
+            for j in R
+            for k in D
+            for l in S
+        }
+
+        # decision variables y_i_k
+        # indicating if a courier i worked a night shift on day k followed by a daytime shift
+        y = {
+            (i, k): pulp.LpVariable(cat=pulp.LpBinary, name=f"y_{i}_{k}")
+            for i in C
+            for k in D
+        }
+
+        # decision variables z_i_k
+        # indicating if a courier i is assigned to three consecutive night shifts starting on day k
+        z = {
+            (i, k): pulp.LpVariable(cat=pulp.LpBinary, name=f"z_{i}_{k}")
+            for i in C
+            for k in D
+        }
