@@ -31,6 +31,8 @@ class MILP:
 
     def solve(self):
 
+        opt_model = pulp.LpProblem(name="pizza model")
+
         nr_of_couriers = self._forced_day_off.shape[0]
         nr_of_days = self._forced_day_off.shape[1]
         nr_of_routes = self._qualified_route.shape[1]
@@ -84,5 +86,34 @@ class MILP:
         z = {
             (i, k): pulp.LpVariable(cat=pulp.LpBinary, name=f"z_{i}_{k}")
             for i in C
+            for k in D
+        }
+
+        # Each route needs two couriers every day
+        constraints_1 = {
+            {j, k, l}: opt_model.addConstraint(
+                pulp.LpConstraint(
+                    e=pulp.lpSum(x[i, j, k, l] for i in C),
+                    sense=pulp.LpConstraintEQ,
+                    rhs=1,
+                    name=f"1_constraint_{j}_{k}_{l}",
+                )
+            )
+            for j in R
+            for k in D
+            for l in S
+        }
+
+        # Only one shift per day
+        constraints_2 = {
+            {i, k}: opt_model.addConstraint(
+                pulp.LpConstraint(
+                    e=pulp.lpSum(x[i, j, k, l] for j in R for l in S),
+                    sense=pulp.LpConstraintLE,
+                    rhs=1,
+                    name=f"2_constraint_{i}_{k}",
+                )
+            )
+            for i in R
             for k in D
         }
