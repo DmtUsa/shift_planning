@@ -31,11 +31,11 @@ class MILP:
 
     def solve(self):
 
-        opt_model = pulp.LpProblem(name="pizza model")
+        opt_model = pulp.LpProblem(name="ShiftPlanning")
 
         nr_of_couriers = self._forced_day_off.shape[0]
-        nr_of_days = self._forced_day_off.shape[1]
-        nr_of_routes = self._qualified_route.shape[1]
+        nr_of_days = self._forced_day_off.shape[1] - 1
+        nr_of_routes = self._qualified_route.shape[1] - 1
 
         # set of couriers
         C = range(nr_of_couriers)
@@ -78,7 +78,7 @@ class MILP:
         y = {
             (i, k): pulp.LpVariable(cat=pulp.LpBinary, name=f"y_{i}_{k}")
             for i in C
-            for k in D
+            for k in range(nr_of_days - 1)
         }
 
         # decision variables z_i_k
@@ -86,7 +86,7 @@ class MILP:
         z = {
             (i, k): pulp.LpVariable(cat=pulp.LpBinary, name=f"z_{i}_{k}")
             for i in C
-            for k in D
+            for k in range(nr_of_days - 3)
         }
 
         # Each route needs two couriers every day
@@ -122,7 +122,7 @@ class MILP:
         constraints_3 = {
             (i, j): opt_model.addConstraint(
                 pulp.LpConstraint(
-                    e=pulp.lpSum(x[i, j, k, l]*(1 - q[i, j]) for k in D for l in S),
+                    e=pulp.lpSum(x[i, j, k, l] * (1 - q[i, j]) for k in D for l in S),
                     sense=pulp.LpConstraintEQ,
                     rhs=0,
                     name=f"3_constraint_{i}_{j}",
@@ -136,7 +136,7 @@ class MILP:
         constraints_4 = {
             (i, k): opt_model.addConstraint(
                 pulp.LpConstraint(
-                    e=pulp.lpSum(x[i, j, k, l]*v[i, k] for j in R for l in S),
+                    e=pulp.lpSum(x[i, j, k, l] * v[i, k] for j in R for l in S),
                     sense=pulp.LpConstraintEQ,
                     rhs=0,
                     name=f"4_constraint_{i}_{k}",
@@ -158,3 +158,120 @@ class MILP:
             )
             for i in C
         }
+
+        # Dummy variable y_i_k definition - part 1
+        constraints_6 = {
+            (i, k): opt_model.addConstraint(
+                pulp.LpConstraint(
+                    e=2 * y[i, k]
+                    - pulp.lpSum((x[i, j, k, 2] + x[i, j, k + 1, 1]) for j in R),
+                    sense=pulp.LpConstraintLE,
+                    rhs=0,
+                    name=f"6_constraint_{i}_{k}",
+                )
+            )
+            for i in C
+            for k in range(nr_of_days - 1)
+        }
+
+        # Dummy variable y_i_k definition - part 2
+        constraints_7 = {
+            (i, k): opt_model.addConstraint(
+                pulp.LpConstraint(
+                    e=pulp.lpSum((x[i, j, k, 2] + x[i, j, k + 1, 1]) for j in R)
+                    - y[i, k],
+                    sense=pulp.LpConstraintLE,
+                    rhs=1,
+                    name=f"7_constraint_{i}_{k}",
+                )
+            )
+            for i in C
+            for k in range(nr_of_days - 1)
+        }
+
+        # Dummy variable z_i_k definition - part 1
+        constraints_8 = {
+            (i, k): opt_model.addConstraint(
+                pulp.LpConstraint(
+                    e=4 * z[i, k]
+                    - pulp.lpSum(
+                        (
+                            x[i, j, k, 2]
+                            + x[i, j, k + 1, 2]
+                            + x[i, j, k + 2, 2]
+                            + x[i, j, k + 3, 2]
+                        )
+                        for j in R
+                    ),
+                    sense=pulp.LpConstraintLE,
+                    rhs=0,
+                    name=f"8_constraint_{i}_{k}",
+                )
+            )
+            for i in C
+            for k in range(nr_of_days - 3)
+        }
+
+        # Dummy variable z_i_k definition - part 2
+        constraints_9 = {
+            (i, k): opt_model.addConstraint(
+                pulp.LpConstraint(
+                    e=pulp.lpSum(
+                        (
+                            x[i, j, k, 2]
+                            + x[i, j, k + 1, 2]
+                            + x[i, j, k + 2, 2]
+                            + x[i, j, k + 3, 2]
+                        )
+                        for j in R
+                    )
+                    - z[i, k],
+                    sense=pulp.LpConstraintLE,
+                    rhs=3,
+                    name=f"9_constraint_{i}_{k}",
+                )
+            )
+            for i in C
+            for k in range(nr_of_days - 3)
+        }
+
+        # add objective
+        objective = (
+            4
+            * pulp.lpSum(
+                (1 - x[i, j, k, l]) * d[i, k]
+                for i in C
+                for j in R
+                for k in D
+                for l in S
+            )
+            + 3
+            * pulp.lpSum(
+                x[i, j, k, l] * s[i, k, l] for i in C for j in R for k in D for l in S
+            )
+            - 20 * pulp.lpSum(y[i, k] for i in C for k in range(nr_of_days - 1))
+            - 10 * pulp.lpSum(z[i, k] for i in C for k in range(nr_of_days - 3))
+        )
+
+        # set to maximize
+        opt_model.sense = pulp.LpMaximize
+        opt_model.setObjective(objective)
+
+        # solving with CBC solver
+        pulp.LpSolverDefault.msg = 1
+        opt_model.solve()
+
+        # extract solution
+        solution = [
+            {
+                "courier_id": i + 1,
+                "day": f"day{k + 1}",
+                "rout_id": f"route{j + 1}",
+                "shift_id": l,
+            }
+            for i in C
+            for j in R
+            for k in D
+            for l in S
+            if (x[i, j, k, l].varValue == 1)
+        ]
