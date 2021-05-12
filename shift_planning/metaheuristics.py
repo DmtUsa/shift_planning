@@ -17,22 +17,22 @@ class GeneticAlgorithm:
     ):
         self._forced_day_off = pd.read_csv(
             f"{input_dir}/plan_{problem_instance}/forced_day_off.csv"
-        )
+        ).iloc[:, 1:].values
         self._pref_day_off = pd.read_csv(
             f"{input_dir}/plan_{problem_instance}/pref_day_off.csv"
-        )
+        ).iloc[:, 1:].values
         self._pref_work_shift = pd.read_csv(
             f"{input_dir}/plan_{problem_instance}/pref_work_shift.csv"
-        )
+        ).iloc[:, 1:].values
         self._qualified_route = pd.read_csv(
             f"{input_dir}/plan_{problem_instance}/qualified_route.csv"
-        )
+        ).iloc[:, 1:].values
 
     def run(self):
 
         nr_of_couriers = self._forced_day_off.shape[0]
-        nr_of_days = self._forced_day_off.shape[1] - 1
-        nr_of_routes = self._qualified_route.shape[1] - 1
+        nr_of_days = self._forced_day_off.shape[1]
+        nr_of_routes = self._qualified_route.shape[1]
 
         # generate initial solution
         solution = np.zeros((nr_of_couriers, nr_of_routes, nr_of_days, 2))
@@ -41,19 +41,17 @@ class GeneticAlgorithm:
                 for l in range(2):
                     feasible_couriers = self._feasible_couriers(j, k, l, solution)
                     # pick a courier who is qualified for the least number of routes
-                    qualification = self._qualified_route.iloc[
-                        feasible_couriers, 1:
+                    qualification = self._qualified_route[
+                        feasible_couriers, :
                     ].sum(axis=1)
-                    least_qualified = qualification.loc[
+                    least_qualified = feasible_couriers[
                         qualification == qualification.min()
-                    ].index.values
-                    # out of those least qualified pick the one with least free days left
-                    days_off = self._forced_day_off.iloc[
-                        least_qualified, (k + 1):
-                    ].sum(axis=1)
-                    least_free = days_off.loc[days_off == days_off.min()].index.values[
-                        0
                     ]
+                    # out of those least qualified pick the one with least free days left
+                    days_off = self._forced_day_off[
+                        least_qualified, k:
+                    ].sum(axis=1)
+                    least_free = least_qualified[days_off == days_off.min()][0]
                     # assign one of the feasible couriers if any
                     if least_free.size > 0:
                         solution[least_free, j, k, l] = 1
@@ -62,15 +60,11 @@ class GeneticAlgorithm:
                         solution[np.random.choice(np.arange(11)), j, k, l] = 1
         return None
 
-    def _feasible_couriers(self, j, k, l, solution):
-        qualified = self._qualified_route.index[
-            self._qualified_route.iloc[:, j + 1] == 1
-        ].values
-        free = self._forced_day_off.index[
-            self._forced_day_off.iloc[:, k + 1] == 0
-        ].values
+    def _feasible_couriers(self, j, k, l, solution, ignore_night_shifts: bool = True):
+        qualified = np.where(self._qualified_route[:, j] == 1)[0]
+        free = np.where(self._forced_day_off[:, k] == 0)[0]
         not_scheduled_yet = np.where(solution[:, :, k, :].sum(axis=(1, 2)) == 0)[0]
-        if False: #l == 1:
+        if not ignore_night_shifts and l == 1:
             allowed_for_the_shift = np.where(solution[:, :, :, 1].sum(axis=(1, 2)) < 4)[
                 0
             ]
@@ -82,7 +76,10 @@ class GeneticAlgorithm:
             allowed_for_the_shift,
         )
 
-    def _fitness(self):
+    def _fitness(self, solution):
+        fitness = 0
+        # days off preference
+        # self._pref_day_off[]
         return None
 
     def _move(self):
