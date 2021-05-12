@@ -253,7 +253,7 @@ class MILP:
             - 10 * pulp.lpSum(z[i, k] for i in C for k in range(nr_of_days - 3))
         )
 
-        # set to maximize
+        # set to maximize the objective
         opt_model.sense = pulp.LpMaximize
         opt_model.setObjective(objective)
 
@@ -275,3 +275,15 @@ class MILP:
             for l in S
             if (x[i, j, k, l].varValue == 1)
         ]
+
+        # write to csv in required format
+        output = pd.DataFrame.from_dict(
+            {
+                "courier_id": [x["courier_id"] for x in solution],
+                "day": [x["day"] for x in solution],
+                "rout_id": [x["rout_id"] for x in solution],
+                "shift_id": [x["shift_id"] for x in solution],
+            }
+        )
+
+        output.to_csv(f"milp_solution.csv", index=False)
