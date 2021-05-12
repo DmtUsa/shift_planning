@@ -15,18 +15,31 @@ class GeneticAlgorithm:
     def __init__(
         self, input_dir: str = "./input_data/", problem_instance: int = 1,
     ):
-        self._forced_day_off = pd.read_csv(
-            f"{input_dir}/plan_{problem_instance}/forced_day_off.csv"
-        ).iloc[:, 1:].values
-        self._pref_day_off = pd.read_csv(
-            f"{input_dir}/plan_{problem_instance}/pref_day_off.csv"
-        ).iloc[:, 1:].values
-        self._pref_work_shift = pd.read_csv(
-            f"{input_dir}/plan_{problem_instance}/pref_work_shift.csv"
-        ).iloc[:, 1:].values
-        self._qualified_route = pd.read_csv(
-            f"{input_dir}/plan_{problem_instance}/qualified_route.csv"
-        ).iloc[:, 1:].values
+        self._forced_day_off = (
+            pd.read_csv(f"{input_dir}/plan_{problem_instance}/forced_day_off.csv")
+            .iloc[:, 1:]
+            .values
+        )
+        self._pref_day_off = (
+            pd.read_csv(f"{input_dir}/plan_{problem_instance}/pref_day_off.csv")
+            .iloc[:, 1:]
+            .values
+        )
+        pref_work_shift = (
+            pd.read_csv(f"{input_dir}/plan_{problem_instance}/pref_work_shift.csv")
+            .iloc[:, 1:]
+            .values
+        )
+        self._pref_work_shift = np.zeros(
+            (self._forced_day_off.shape[0], self._forced_day_off.shape[1], 2)
+        )
+        self._pref_work_shift[:, :, 0] = (pref_work_shift == 1).astype(int)
+        self._pref_work_shift[:, :, 1] = (pref_work_shift == 2).astype(int)
+        self._qualified_route = (
+            pd.read_csv(f"{input_dir}/plan_{problem_instance}/qualified_route.csv")
+            .iloc[:, 1:]
+            .values
+        )
 
     def run(self):
 
@@ -41,16 +54,14 @@ class GeneticAlgorithm:
                 for l in range(2):
                     feasible_couriers = self._feasible_couriers(j, k, l, solution)
                     # pick a courier who is qualified for the least number of routes
-                    qualification = self._qualified_route[
-                        feasible_couriers, :
-                    ].sum(axis=1)
+                    qualification = self._qualified_route[feasible_couriers, :].sum(
+                        axis=1
+                    )
                     least_qualified = feasible_couriers[
                         qualification == qualification.min()
                     ]
                     # out of those least qualified pick the one with least free days left
-                    days_off = self._forced_day_off[
-                        least_qualified, k:
-                    ].sum(axis=1)
+                    days_off = self._forced_day_off[least_qualified, k:].sum(axis=1)
                     least_free = least_qualified[days_off == days_off.min()][0]
                     # assign one of the feasible couriers if any
                     if least_free.size > 0:
@@ -58,6 +69,7 @@ class GeneticAlgorithm:
                     # otherwise a random one
                     else:
                         solution[np.random.choice(np.arange(11)), j, k, l] = 1
+        print(self._fitness(solution))
         return None
 
     def _feasible_couriers(self, j, k, l, solution, ignore_night_shifts: bool = True):
@@ -78,8 +90,24 @@ class GeneticAlgorithm:
 
     def _fitness(self, solution):
         fitness = 0
-        # days off preference
-        # self._pref_day_off[]
+        # benefits for days off preferences
+        fitness += 4 * (self._pref_day_off * solution.sum(axis=(1, 3))).sum()
+        # benefits for shift preferences
+        fitness += 3 * (self._pref_work_shift * solution.sum(axis=1)).sum()
+        # penalties for day shift following a night shift
+        fitness -= 20 * (solution[:, :, :-1, 1] + solution[:, :, 1:, 0] > 1).sum()
+        # penalties for each consecutive night shift after 3 consecutive night shifts
+        fitness -= (
+            10
+            * np.apply_along_axis(
+                self._subarray_count,
+                axis=1,
+                arr=solution[:, :, :, 1].sum(axis=1),
+                B=np.array([1, 1, 1, 1]),
+            ).sum()
+        )
+        # penalties for having more than 4 night shifts over the two week period
+        fitness -= 100 * (solution[:, :, :, 1].sum(axis=(1, 2)) > 4).sum()
         return None
 
     def _move(self):
@@ -101,8 +129,8 @@ class GeneticAlgorithm:
         counter = 0
 
         # Two pointers to traverse the arrays
-        i = 0;
-        j = 0;
+        i = 0
+        j = 0
 
         # Traverse both arrays simultaneously
         while i < n and j < m:
