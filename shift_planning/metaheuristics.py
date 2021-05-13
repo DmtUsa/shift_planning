@@ -1,11 +1,13 @@
+import copy
 import csv
+import itertools
 import sys
 from datetime import timedelta
 from typing import Dict, List
-import copy
 
 import numpy as np
 import pandas as pd
+from matplotlib import pyplot as plt
 
 
 class GeneticAlgorithm:
@@ -42,11 +44,13 @@ class GeneticAlgorithm:
             .values
         )
 
-    def run(self, population_size: int = 100):
+    def run(self, population_size: int = 100, best_candidates_fraction: float = 0.8):
 
         nr_of_couriers = self._forced_day_off.shape[0]
         nr_of_days = self._forced_day_off.shape[1]
         nr_of_routes = self._qualified_route.shape[1]
+
+        best_candidates_number = round(best_candidates_fraction * population_size)
 
         # generate initial solution
         solution = np.zeros((nr_of_couriers, nr_of_routes, nr_of_days, 2))
@@ -76,10 +80,37 @@ class GeneticAlgorithm:
         population = [solution for x in range(population_size)]
         population_fitness = [initial_fitness for x in range(population_size)]
 
+        best_fitness_history = [initial_fitness]
+
         while True:
             # apply move operator
-            new_population = [self._move(copy.deepcopy(x)) for x in population]
-            new_population_fitness = [self._fitness(x) for x in new_population]
+            move_population = [self._move(copy.deepcopy(x)) for x in population]
+            # apply crossover operator
+            crossover_population = [
+                self._crossover(copy.deepcopy(move_population))
+                for x in range(int(len(move_population) / 2))
+            ]
+            crossover_population = list(itertools.chain(*crossover_population))
+            new_population_candidates = (
+                population + move_population + crossover_population
+            )
+            candidates_fitness = [self._fitness(x) for x in new_population_candidates]
+
+            best_candidates_ids = sorted(
+                range(len(candidates_fitness)), key=lambda i: candidates_fitness[i]
+            )[-best_candidates_number:]
+            random_candidates_ids = list(np.random.choice(
+                [
+                    x
+                    for x in range(len(candidates_fitness))
+                    if x not in best_candidates_ids
+                ],
+                population_size - best_candidates_number,
+            ))
+            population = [new_population_candidates[x] for x in best_candidates_ids+random_candidates_ids]
+            best_fitness_history += max(candidates_fitness)
+
+            plt.plot(best_fitness_history)
             pass
         return None
 
@@ -162,13 +193,19 @@ class GeneticAlgorithm:
                 solution[current_courier, j, k, l] = 0
                 solution[alternative, j, k, l] = 1
             else:
-                alternative = current_courier_is_exchangable_with[choice-unassigned_feasible_couriers.size]
+                alternative = current_courier_is_exchangable_with[
+                    choice - unassigned_feasible_couriers.size
+                ]
                 alternative_shift = np.where(solution[alternative, :, k, :] > 0)
                 # reassign the current courier to the new (alternative) shift
                 solution[current_courier, j, k, l] = 0
-                solution[current_courier, alternative_shift[0][0], k, alternative_shift[1][0]] = 1
+                solution[
+                    current_courier, alternative_shift[0][0], k, alternative_shift[1][0]
+                ] = 1
                 # assign the alternative courier to the current shift
-                solution[alternative, alternative_shift[0][0], k, alternative_shift[1][0]] = 0
+                solution[
+                    alternative, alternative_shift[0][0], k, alternative_shift[1][0]
+                ] = 0
                 solution[alternative, j, k, l] = 1
 
         return solution
@@ -176,8 +213,23 @@ class GeneticAlgorithm:
     def _mutation(self):
         return None
 
-    def _crossover(self):
-        return None
+    def _crossover(self, population):
+        # select two different solutions at random
+        parents_indices = np.random.choice(len(population), 2, replace=False)
+        parent_1 = population[parents_indices[0]]
+        parent_2 = population[parents_indices[1]]
+
+        # select a cutoff day at random
+        number_of_days = population[0].shape[2]
+        cutoff_day = np.random.choice(np.arange(1, number_of_days - 1))
+
+        # child solutions
+        child_1 = copy.deepcopy(parent_1)
+        child_1[:, :, :cutoff_day, :] = parent_2[:, :, :cutoff_day, :]
+        child_2 = copy.deepcopy(parent_1)
+        child_2[:, :, cutoff_day:, :] = parent_2[:, :, cutoff_day:, :]
+
+        return [child_1, child_2]
 
     def _feasible_couriers(
         self,
