@@ -2,6 +2,7 @@ import csv
 import sys
 from datetime import timedelta
 from typing import Dict, List
+import copy
 
 import numpy as np
 import pandas as pd
@@ -41,7 +42,7 @@ class GeneticAlgorithm:
             .values
         )
 
-    def run(self):
+    def run(self, population_size: int = 100):
 
         nr_of_couriers = self._forced_day_off.shape[0]
         nr_of_days = self._forced_day_off.shape[1]
@@ -69,24 +70,18 @@ class GeneticAlgorithm:
                     # otherwise a random one
                     else:
                         solution[np.random.choice(np.arange(11)), j, k, l] = 1
-        print(self._fitness(solution))
+        initial_fitness = self._fitness(solution)
+
+        # initial population
+        population = [solution for x in range(population_size)]
+        population_fitness = [initial_fitness for x in range(population_size)]
+
+        while True:
+            # apply move operator
+            new_population = [self._move(copy.deepcopy(x)) for x in population]
+            new_population_fitness = [self._fitness(x) for x in new_population]
+            pass
         return None
-
-    def _feasible_couriers(self, j, k, l, solution, ignore_night_shifts: bool = True):
-        qualified = np.where(self._qualified_route[:, j] == 1)[0]
-        free = np.where(self._forced_day_off[:, k] == 0)[0]
-        not_scheduled_yet = np.where(solution[:, :, k, :].sum(axis=(1, 2)) == 0)[0]
-        if not ignore_night_shifts and l == 1:
-            allowed_for_the_shift = np.where(solution[:, :, :, 1].sum(axis=(1, 2)) < 4)[
-                0
-            ]
-        else:
-            allowed_for_the_shift = np.arange(11)
-
-        return np.intersect1d(
-            np.intersect1d(np.intersect1d(qualified, free), not_scheduled_yet),
-            allowed_for_the_shift,
-        )
 
     def _fitness(self, solution):
         fitness = 0
@@ -108,16 +103,113 @@ class GeneticAlgorithm:
         )
         # penalties for having more than 4 night shifts over the two week period
         fitness -= 100 * (solution[:, :, :, 1].sum(axis=(1, 2)) > 4).sum()
-        return None
 
-    def _move(self):
-        return None
+        return fitness
+
+    def _move(self, solution):
+        # pick a random shift
+        (j, k, l) = (
+            np.random.choice(solution.shape[1]),
+            np.random.choice(solution.shape[2]),
+            np.random.choice(2),
+        )
+        # currently assigned courier to that shift
+        current_courier = np.where(solution[:, j, k, l] == 1)[0][0]
+
+        # get the unassigned feasible couriers
+        unassigned_feasible_couriers = self._feasible_couriers(
+            j, k, l, solution, ignore_night_shifts=False
+        )
+
+        # get the assigned couriers feasible for exchange
+        assigned_feasible_couriers = self._feasible_couriers(
+            j, k, l, solution, ignore_night_shifts=False, consider_only_unassigned=False
+        )
+        assigned_feasible_couriers = assigned_feasible_couriers[
+            assigned_feasible_couriers != current_courier
+        ]
+        # check which of those can the current courier be exchanged with
+        assigned_shifts = np.where(solution[assigned_feasible_couriers, :, k, :] > 0)[
+            1:
+        ]
+        temp_solution = copy.deepcopy(solution)
+        temp_solution[current_courier, j, k, l] = 0
+        current_courier_is_exchangable_with = np.array(
+            [
+                assigned_feasible_couriers[x]
+                for x in range(assigned_feasible_couriers.size)
+                if np.isin(
+                    current_courier,
+                    self._feasible_couriers(
+                        assigned_shifts[0][x],
+                        k,
+                        assigned_shifts[1][x],
+                        temp_solution,
+                        ignore_night_shifts=False,
+                    ),
+                )
+            ]
+        )
+
+        # pick a random (either unassigned or assigned) courier
+        nr_of_alternatives = (
+            unassigned_feasible_couriers.size + current_courier_is_exchangable_with.size
+        )
+        if nr_of_alternatives > 0:
+            choice = np.random.choice(nr_of_alternatives)
+            if choice < unassigned_feasible_couriers.size:
+                alternative = unassigned_feasible_couriers[choice]
+                solution[current_courier, j, k, l] = 0
+                solution[alternative, j, k, l] = 1
+            else:
+                alternative = current_courier_is_exchangable_with[choice-unassigned_feasible_couriers.size]
+                alternative_shift = np.where(solution[alternative, :, k, :] > 0)
+                # reassign the current courier to the new (alternative) shift
+                solution[current_courier, j, k, l] = 0
+                solution[current_courier, alternative_shift[0][0], k, alternative_shift[1][0]] = 1
+                # assign the alternative courier to the current shift
+                solution[alternative, alternative_shift[0][0], k, alternative_shift[1][0]] = 0
+                solution[alternative, j, k, l] = 1
+
+        return solution
 
     def _mutation(self):
         return None
 
     def _crossover(self):
         return None
+
+    def _feasible_couriers(
+        self,
+        j,
+        k,
+        l,
+        solution,
+        ignore_night_shifts: bool = True,
+        consider_only_unassigned: bool = True,
+    ):
+        qualified = np.where(self._qualified_route[:, j] == 1)[0]
+        free = np.where(self._forced_day_off[:, k] == 0)[0]
+        if not ignore_night_shifts and l == 1:
+            allowed_for_the_shift = np.where(solution[:, :, :, 1].sum(axis=(1, 2)) < 4)[
+                0
+            ]
+        else:
+            allowed_for_the_shift = np.arange(11)
+        if consider_only_unassigned:
+            not_scheduled_yet = np.where(solution[:, :, k, :].sum(axis=(1, 2)) == 0)[0]
+            feasible_couriers = np.intersect1d(
+                np.intersect1d(np.intersect1d(qualified, free), not_scheduled_yet),
+                allowed_for_the_shift,
+            )
+        else:
+            scheduled = np.where(solution[:, :, k, :].sum(axis=(1, 2)) == 1)[0]
+            feasible_couriers = np.intersect1d(
+                np.intersect1d(np.intersect1d(qualified, free), scheduled),
+                allowed_for_the_shift,
+            )
+
+        return feasible_couriers
 
     def _subarray_count(self, A, B):
         """
