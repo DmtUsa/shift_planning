@@ -1,8 +1,5 @@
 import copy
-import csv
 import itertools
-import sys
-from datetime import timedelta
 from typing import Dict, List
 
 import numpy as np
@@ -16,20 +13,24 @@ class GeneticAlgorithm:
     """
 
     def __init__(
-        self, input_dir: str = "./input_data/", problem_instance: int = 1,
+        self, ilp_solution, input_dir: str = "./input_data/", problem_instance: int = 1,
     ):
+        self._ilp_solution = ilp_solution
+        self._problem_instance = problem_instance
         self._forced_day_off = (
-            pd.read_csv(f"{input_dir}/plan_{problem_instance}/forced_day_off.csv")
+            pd.read_csv(f"{input_dir}/plan_{self._problem_instance}/forced_day_off.csv")
             .iloc[:, 1:]
             .values
         )
         self._pref_day_off = (
-            pd.read_csv(f"{input_dir}/plan_{problem_instance}/pref_day_off.csv")
+            pd.read_csv(f"{input_dir}/plan_{self._problem_instance}/pref_day_off.csv")
             .iloc[:, 1:]
             .values
         )
         pref_work_shift = (
-            pd.read_csv(f"{input_dir}/plan_{problem_instance}/pref_work_shift.csv")
+            pd.read_csv(
+                f"{input_dir}/plan_{self._problem_instance}/pref_work_shift.csv"
+            )
             .iloc[:, 1:]
             .values
         )
@@ -39,12 +40,25 @@ class GeneticAlgorithm:
         self._pref_work_shift[:, :, 0] = (pref_work_shift == 1).astype(int)
         self._pref_work_shift[:, :, 1] = (pref_work_shift == 2).astype(int)
         self._qualified_route = (
-            pd.read_csv(f"{input_dir}/plan_{problem_instance}/qualified_route.csv")
+            pd.read_csv(
+                f"{input_dir}/plan_{self._problem_instance}/qualified_route.csv"
+            )
             .iloc[:, 1:]
             .values
         )
+        self.solution = None
+        self.best_fitness_history = None
+        self.best_fitness = None
 
-    def run(self, population_size: int = 100, best_candidates_fraction: float = 0.8):
+    def run(
+        self,
+        population_size: int = 100,
+        best_candidates_fraction: float = 0.9,
+        stopping_factor: float = 0.0001,
+        random_seed: int = 0,
+    ):
+        # set random seed
+        np.random.seed(seed=random_seed)
 
         nr_of_couriers = self._forced_day_off.shape[0]
         nr_of_days = self._forced_day_off.shape[1]
@@ -96,32 +110,88 @@ class GeneticAlgorithm:
             )
             candidates_fitness = [self._fitness(x) for x in new_population_candidates]
 
+            # select the best_candidates_fraction of candidate solutions for the new population
             best_candidates_ids = sorted(
                 range(len(candidates_fitness)), key=lambda i: candidates_fitness[i]
             )[-best_candidates_number:]
-            random_candidates_ids = list(np.random.choice(
-                [
-                    x
-                    for x in range(len(candidates_fitness))
-                    if x not in best_candidates_ids
-                ],
-                population_size - best_candidates_number,
-            ))
-            population = [new_population_candidates[x] for x in best_candidates_ids+random_candidates_ids]
-            best_fitness_history += max(candidates_fitness)
 
-            plt.plot(best_fitness_history)
-            pass
+            # select the rest of the new population at random
+            random_candidates_ids = list(
+                np.random.choice(
+                    [
+                        x
+                        for x in range(len(candidates_fitness))
+                        if x not in best_candidates_ids
+                    ],
+                    population_size - best_candidates_number,
+                )
+            )
+
+            # form the new population
+            population = [
+                new_population_candidates[x]
+                for x in best_candidates_ids + random_candidates_ids
+            ]
+
+            best_fitness_history += [max(candidates_fitness)]
+
+            # plt.plot(best_fitness_history)
+            # plt.show()
+            # print(best_fitness_history[-1])
+
+            # check for stopping criterion
+            if (
+                (
+                    best_fitness_history[-1]
+                    - best_fitness_history[-min(10, len(best_fitness_history))]
+                )
+                / abs(best_fitness_history[-min(10, len(best_fitness_history))])
+                < stopping_factor
+            ):
+                self.best_fitness_history = best_fitness_history
+                self.best_fitness = best_fitness_history[-1]
+
+                # save best solution in the required format
+                best_found_solution = new_population_candidates[
+                    candidates_fitness.index(self.best_fitness)
+                ]
+                best_found_schedule = [
+                    [i + 1, f"route{j+1}", f"day{k+1}", l + 1]
+                    for i in range(nr_of_couriers)
+                    for j in range(nr_of_routes)
+                    for k in range(nr_of_days)
+                    for l in range(2)
+                    if best_found_solution[i, j, k, l] == 1
+                ]
+                self.solution = pd.DataFrame.from_dict(
+                    {
+                        "courier_id": [x[0] for x in best_found_schedule],
+                        "day": [x[2] for x in best_found_schedule],
+                        "rout_id": [x[1] for x in best_found_schedule],
+                        "shift_id": [x[3] for x in best_found_schedule],
+                    }
+                )
+
+                self.solution.to_csv(
+                    f"ga_solution_{self._problem_instance}.csv", index=False
+                )
+                break
+
         return None
 
     def _fitness(self, solution):
         fitness = 0
         # benefits for days off preferences
-        fitness += 4 * (self._pref_day_off * solution.sum(axis=(1, 3))).sum()
+        fitness += 4 * (self._pref_day_off * (1 - solution.sum(axis=(1, 3)))).sum()
         # benefits for shift preferences
         fitness += 3 * (self._pref_work_shift * solution.sum(axis=1)).sum()
         # penalties for day shift following a night shift
-        fitness -= 20 * (solution[:, :, :-1, 1] + solution[:, :, 1:, 0] > 1).sum()
+        fitness -= (
+            20
+            * (
+                solution[:, :, :-1, 1].sum(axis=1) * solution[:, :, 1:, 0].sum(axis=1)
+            ).sum()
+        )
         # penalties for each consecutive night shift after 3 consecutive night shifts
         fitness -= (
             10
@@ -209,9 +279,6 @@ class GeneticAlgorithm:
                 solution[alternative, j, k, l] = 1
 
         return solution
-
-    def _mutation(self):
-        return None
 
     def _crossover(self, population):
         # select two different solutions at random

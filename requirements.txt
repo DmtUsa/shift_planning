@@ -1,5 +1,1 @@
-pytest
-pytest-cov
 pulp
-copy
-itertools

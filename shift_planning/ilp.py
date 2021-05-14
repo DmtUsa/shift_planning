@@ -1,6 +1,3 @@
-import csv
-import sys
-from datetime import timedelta
 from typing import Dict, List
 
 import numpy as np
@@ -8,26 +5,28 @@ import pandas as pd
 import pulp
 
 
-class MILP:
+class ILP:
     """
-    MILP for Shift Planning
+    Solve Integer Linear Program for Shift Planning
     """
 
     def __init__(
         self, input_dir: str = "./input_data/", problem_instance: int = 1,
     ):
+        self._problem_instance = problem_instance
         self._forced_day_off = pd.read_csv(
-            f"{input_dir}/plan_{problem_instance}/forced_day_off.csv"
+            f"{input_dir}/plan_{self._problem_instance}/forced_day_off.csv"
         )
         self._pref_day_off = pd.read_csv(
-            f"{input_dir}/plan_{problem_instance}/pref_day_off.csv"
+            f"{input_dir}/plan_{self._problem_instance}/pref_day_off.csv"
         )
         self._pref_work_shift = pd.read_csv(
-            f"{input_dir}/plan_{problem_instance}/pref_work_shift.csv"
+            f"{input_dir}/plan_{self._problem_instance}/pref_work_shift.csv"
         )
         self._qualified_route = pd.read_csv(
-            f"{input_dir}/plan_{problem_instance}/qualified_route.csv"
+            f"{input_dir}/plan_{self._problem_instance}/qualified_route.csv"
         )
+        self.solution = None
 
     def solve(self):
 
@@ -60,7 +59,7 @@ class MILP:
             for l in S
         }
 
-        # preferred days of
+        # preferred days off
         d = {(i, k): self._pref_day_off.iloc[i, k + 1] for i in C for k in D}
 
         # decision variables x_i_j_k_l
@@ -239,11 +238,9 @@ class MILP:
         objective = (
             4
             * pulp.lpSum(
-                (1 - x[i, j, k, l]) * d[i, k]
+                (1 - pulp.lpSum(x[i, j, k, l] for j in R for l in S)) * d[i, k]
                 for i in C
-                for j in R
                 for k in D
-                for l in S
             )
             + 3
             * pulp.lpSum(
@@ -276,8 +273,13 @@ class MILP:
             if (x[i, j, k, l].varValue == 1)
         ]
 
-        # write to csv in required format
-        output = pd.DataFrame.from_dict(
+        # output in GA format
+        self.solution = np.array(
+            [[[[x[i, j, k, l].varValue for l in S] for k in D] for j in R] for i in C]
+        )
+
+        # save solution in the required format
+        self._solution = pd.DataFrame.from_dict(
             {
                 "courier_id": [x["courier_id"] for x in solution],
                 "day": [x["day"] for x in solution],
@@ -286,4 +288,4 @@ class MILP:
             }
         )
 
-        output.to_csv(f"milp_solution.csv", index=False)
+        self._solution.to_csv(f"ilp_solution_{self._problem_instance}.csv", index=False)
