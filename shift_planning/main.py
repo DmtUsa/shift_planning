@@ -4,16 +4,18 @@ from matplotlib import pyplot as plt
 import time
 
 if __name__ == "__main__":
+    problem_instance = 1
     # Solve the ILP formulation
-    ilp = ILP()
+    ilp = ILP(problem_instance=problem_instance)
     ilp.solve()
 
     # Run Genetic Algorithm
     ga = GeneticAlgorithm(
-        population_size=130,
-        best_candidates_fraction=0.3,
+        population_size=150,
+        best_candidates_fraction=0.5,
         stop_after=15,
-        mutation_threshold=0.05,
+        mutation_threshold=0.5,
+        problem_instance=problem_instance,
     )
     start_time = time.time()
     ga.run(random_seed=3)

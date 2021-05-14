@@ -13,10 +13,10 @@ class GeneticAlgorithm:
 
     def __init__(
         self,
-        population_size: int = 130,
-        best_candidates_fraction: float = 0.3,
+        population_size: int = 150,
+        best_candidates_fraction: float = 0.5,
         stop_after: float = 15,
-        mutation_threshold: float = 0.05,
+        mutation_threshold: float = 0.5,
         input_dir: str = "./input_data/",
         problem_instance: int = 1,
     ):
@@ -101,7 +101,7 @@ class GeneticAlgorithm:
                     ]
                     # out of those least qualified pick the one with least free days left
                     days_off = self._forced_day_off[least_qualified, k:].sum(axis=1)
-                    least_free = least_qualified[days_off == days_off.min()][0]
+                    least_free = np.random.choice(least_qualified[days_off == days_off.max()])
                     # assign one of the feasible couriers if any
                     if least_free.size > 0:
                         solution[least_free, j, k, l] = 1
@@ -439,9 +439,12 @@ class GeneticAlgorithm:
 
         return feasible_couriers
 
-    def _subarray_count(self, A, B):
+    def _subarray_count(self, A, B) -> int:
         """
-        Number of time array B is a subarray of A
+        Number of times array B is a subarray of A
+        :param A:
+        :param B:
+        :return:
         """
 
         n = A.size

@@ -13,6 +13,11 @@ Python 3.7.3
 
 ## Usage
 
+In the terminal switch to the `shift_planning` directory and run the following command: `python3 main.py`.
 
-## Run tests
-Use command `pytest` to run all tests in this repository.
+This will solve the ILP for the original problem instance and run GA with default parameters.
+The default parameters of GA can be modified in `main.py`
+
+To run ILP and GA for another problem instance,
+save the corresponding input files in the `shift_planning/input_data/plan_<PROBLEM_INSTANCE_NUMBER>`,
+and indicate in `main.py` which `problem_instance` should be used.
