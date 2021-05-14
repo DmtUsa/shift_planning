@@ -7,7 +7,7 @@ import pulp
 
 class ILP:
     """
-    Solve Integer Linear Program for Shift Planning
+    Integer Linear Program for Shift Planning
     """
 
     def __init__(
@@ -28,7 +28,7 @@ class ILP:
         )
         self.solution = None
 
-    def solve(self):
+    def solve(self) -> None:
 
         opt_model = pulp.LpProblem(name="ShiftPlanning")
 
@@ -289,3 +289,5 @@ class ILP:
         )
 
         self._solution.to_csv(f"ilp_solution_{self._problem_instance}.csv", index=False)
+
+        return None
